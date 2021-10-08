@@ -45,29 +45,27 @@ $(document).ready(function() {
     $('.message-input').val(null);
     updateScrollbar();
 
-    insertResponseMessage('Oops, something went wrong. Please try again.');
+    callChatbotApi(msg)
+      .then((response) => {
+        console.log(response);
+        var data = response.data;
 
-    // callChatbotApi(msg)
-    //   .then((response) => {
-    //     console.log(response);
-    //     var data = response.data;
-    //
-    //     if (data.messages && data.messages.length > 0) {
-    //       console.log('received ' + data.messages.length + ' messages');
-    //
-    //       var messages = data.messages;
-    //
-    //       for (var message of messages) {
-    //         insertResponseMessage(message.text);
-    //       }
-    //     } else {
-    //       insertResponseMessage('Oops, something went wrong. Please try again.');
-    //     }
-    //   })
-    //   .catch((error) => {
-    //     console.log('an error occurred', error);
-    //     insertResponseMessage('Oops, something went wrong. Please try again.');
-    //   });
+        if (data.messages && data.messages.length > 0) {
+          console.log('received ' + data.messages.length + ' messages');
+
+          var messages = data.messages;
+
+          for (var message of messages) {
+            insertResponseMessage(message.text);
+          }
+        } else {
+          insertResponseMessage('Oops, something went wrong. Please try again.');
+        }
+      })
+      .catch((error) => {
+        console.log('an error occurred', error);
+        insertResponseMessage('Oops, something went wrong. Please try again.');
+      });
   }
 
   $('.message-submit').click(function() {

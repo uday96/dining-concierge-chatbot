@@ -8,12 +8,14 @@ lex_config = {
     "sessionId": 'test_session'
 }
 
+
 def prepare_error_response():
     response = {
         'statusCode': 500,
         'messages': []
     }
     return response
+
 
 def prepare_response_from_lex(data):
     messages = []
@@ -28,6 +30,7 @@ def prepare_response_from_lex(data):
     }
     return response
 
+
 def lex_handler(msg):
     # LexV2 client uses 'lexv2-runtime'
     client = boto3.client('lexv2-runtime')
@@ -37,6 +40,7 @@ def lex_handler(msg):
     response = client.recognize_text(text=msg, **lex_config)
     print('Lex response: %s' % response)
     return response
+
 
 def lambda_handler(event, context):
     print("Request body: %s" % event)

@@ -3,7 +3,6 @@ import boto3
 
 SQS_QUEUE_NAME = "chatbot-sqs-1"
 
-
 def get_slots(intent_request):
     return intent_request['sessionState']['intent']['slots']
 
@@ -72,5 +71,4 @@ def lambda_handler(event, context):
     slots = get_sqs_payload(event)
     print("Slots: %s" % slots)
     send_sqs_message(SQS_QUEUE_NAME, slots)
-    # TODO: If SQS push fails, do not fulfill lex response
     return lex_response
