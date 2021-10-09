@@ -5,6 +5,7 @@ from decimal import Decimal
 
 SQS_QUEUE_NAME = "chatbot-sqs-1"
 DYNAMO_DB_TABLE = "yelp-restaurants"
+# Elasticsearch config
 ES_CONFIG = {
     "url": "https://search-yelp-restaurants-es-coi3ozmqyi2g5vr624aing4dja.us-east-1.es.amazonaws.com",
     "index": "restaurants",
@@ -15,6 +16,9 @@ MAX_NUM_SUGGESTIONS = 1
 
 
 def poll_sqs_messages():
+    """
+    Poll the messages from AWS SQS queue
+    """
     # Poll the SQS messages
     sqs_client = boto3.client('sqs')
     sqs_queue_url = sqs_client.get_queue_url(QueueName=SQS_QUEUE_NAME)['QueueUrl']
@@ -54,6 +58,9 @@ def poll_sqs_messages():
 
 
 def read_db(restaurant_ids):
+    """
+    Read data from Dynamo DB
+    """
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(DYNAMO_DB_TABLE)
     for restaurant_id in restaurant_ids:
@@ -63,6 +70,9 @@ def read_db(restaurant_ids):
 
 
 def load_yelp_data():
+    """
+    Load the JSON data scraped from Yelp
+    """
     with open("yelp-data.json", "r") as f:
         data = json.load(f)
         data = json.loads(json.dumps(data), parse_float=Decimal)
@@ -70,6 +80,9 @@ def load_yelp_data():
 
 
 def write_db():
+    """
+    Write the Yelp data to Dynamo DB
+    """
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(DYNAMO_DB_TABLE)
     table_data = load_yelp_data()
@@ -84,6 +97,9 @@ def write_db():
 
 
 def search_es(cuisine):
+    """
+    Make an Elasticsearch query
+    """
     http = urllib3.PoolManager()
     url = "%s/%s/_search?size=%s" % (ES_CONFIG["url"], ES_CONFIG["index"], MAX_NUM_SUGGESTIONS)
     headers = urllib3.make_headers(basic_auth='%s:%s' % (ES_CONFIG["master-username"], ES_CONFIG["master-password"]))
@@ -111,6 +127,9 @@ def search_es(cuisine):
 
 
 def parse_es_data_for_ids(data):
+    """
+    Parse the Elasticsearch response
+    """
     restaurant_ids = []
     if "hits" not in data:
         print("Error: 'hits' not found in ES search data")
@@ -124,6 +143,9 @@ def parse_es_data_for_ids(data):
 
 
 def get_restaurant_suggestions(cuisine):
+    """
+    Get restaurant suggestion given a cuisine
+    """
     es_data = search_es(cuisine)
     restaurant_ids = parse_es_data_for_ids(es_data)
     print("Restaurant IDs for %s cuisine: %s" % (cuisine, restaurant_ids))
@@ -141,6 +163,9 @@ def get_restaurant_suggestions(cuisine):
 #     print("SNS Response: %s" % response)
 
 def lambda_handler(event, context):
+    """
+    Entry point for lambda invocation
+    """
     messages = poll_sqs_messages()
     for msg in messages:
         get_restaurant_suggestions(msg["cuisine"])

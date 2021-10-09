@@ -24,5 +24,5 @@ for i in range(len(cuisines)):
             }
             all_restuarants.append(required)
 
-with open('data.json', 'w') as f:
+with open('yelp-data.json', 'w') as f:
     json.dump(all_restuarants, f)

@@ -1,6 +1,7 @@
 import boto3
 import json
 
+# Lex bot config
 lex_config = {
     "botId": 'XH88XRXIXE',
     "botAliasId": 'TSTALIASID',
