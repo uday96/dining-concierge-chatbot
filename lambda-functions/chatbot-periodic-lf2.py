@@ -1,6 +1,7 @@
 import json
 import boto3
 import urllib3
+import time
 from decimal import Decimal
 
 SQS_QUEUE_NAME = "chatbot-sqs-1"
@@ -11,6 +12,12 @@ ES_CONFIG = {
     "index": "restaurants",
     "master-username": "chatbot-es-root",
     "master-password": "CCBD-es-123456"
+}
+TWILIO_CONFIG = {
+    "url": "https://api.twilio.com/2010-04-01/Accounts/AC61dbae656b3ec9bd25bf39632edba3a9/Messages.json",
+    "sid": "AC61dbae656b3ec9bd25bf39632edba3a9",
+    "pwd": "95e911c1b4ec74c6049aaa2913a9f789",
+    "from": "+13202333218"
 }
 MAX_NUM_SUGGESTIONS = 1
 
@@ -46,15 +53,34 @@ def poll_sqs_messages():
         parsed = []
         for msg in messages:
             body = json.loads(msg['Body'])
-            parsed.append({
-                "phone": body['phone'],
-                "cuisine": body['cuisine']
-            })
+            # parsed.append({
+            #     "phone": body['phone'],
+            #     "cuisine": body['cuisine']
+            # })
+            parsed.append(body)
         print("SQS parsed msgs: %s" % parsed)
         return parsed
     except Exception as e:
         print("Error: %s" % str(e))
         return []
+
+
+def format_sms_msg(sqs_resp, db_resps):
+    msg = "Hello! Here are my %s restaurant suggestions for %s people, for %s at %s: " % (
+    sqs_resp['cuisine'], sqs_resp['capacity'], sqs_resp['date'], sqs_resp['time'])
+    suggestions_msg = ""
+    for ind, resp in enumerate(db_resps):
+        suggestion = "%d. %s at %s. It has a rating of %s. " % (
+            ind + 1, resp['restaurant-name'], ', '.join(resp['restaurant-location']['display_address']),
+            resp['restaurant-rating'])
+        if resp['restaurant-display_phone']:
+            suggestion += "You can contact them at %s. " % resp['restaurant-display_phone']
+        suggestions_msg += suggestion
+
+    msg += suggestions_msg
+    msg += "Enjoy your meal!"
+    print("Final suggestion: %s" % msg)
+    return msg
 
 
 def read_db(restaurant_ids):
@@ -63,10 +89,14 @@ def read_db(restaurant_ids):
     """
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table(DYNAMO_DB_TABLE)
+    db_resps = []
     for restaurant_id in restaurant_ids:
         response = table.get_item(Key={'restaurant-id': str(restaurant_id)})
         response = response['Item'] if 'Item' in response else {}
         print("DB entry for ID '%s': %s" % (restaurant_id, response))
+        db_resps.append(response)
+
+    return db_resps
 
 
 def load_yelp_data():
@@ -89,6 +119,7 @@ def write_db():
     try:
         with table.batch_writer() as writer:
             for item in table_data:
+                item["inserted-at"] = "%.3f" % time.time()
                 writer.put_item(Item=item)
         print("Loaded data into table %s" % table.name)
     except Exception as e:
@@ -142,25 +173,36 @@ def parse_es_data_for_ids(data):
     return restaurant_ids
 
 
-def get_restaurant_suggestions(cuisine):
+def get_restaurant_suggestions(sqs_msg):
     """
     Get restaurant suggestion given a cuisine
     """
+    cuisine = sqs_msg["cuisine"]
     es_data = search_es(cuisine)
     restaurant_ids = parse_es_data_for_ids(es_data)
     print("Restaurant IDs for %s cuisine: %s" % (cuisine, restaurant_ids))
-    read_db(restaurant_ids)
+    db_resps = read_db(restaurant_ids)
+    sms_payload = format_sms_msg(sqs_msg, db_resps)
+    phone = sqs_msg['phone']
+    if len(phone) == 10:
+        phone = "+1%s" % phone
+    send_twilio_sms(phone, sms_payload)
 
 
-# def push_sns_msg():
-#     client = boto3.client('sns')
-#     response = client.publish(
-#         # TopicArn='arn:aws:sns:us-east-1:814789024927:yelp-restaurants-suggestions',
-#         TopicArn='arn:aws:sns:us-east-1:814789024927:yelp-restaurants-suggestions:5454350d-5eeb-4b95-8db4-76c09fdf8a57',
-#         Message='Hello from Lambda',
-#         Subject='AWS SNS Test'
-#     )
-#     print("SNS Response: %s" % response)
+def send_twilio_sms(number, msg):
+    print("Twilio Request: %s - %s" % (number, msg))
+    http = urllib3.PoolManager()
+    url = TWILIO_CONFIG['url']
+    headers = urllib3.make_headers(basic_auth='%s:%s' % (TWILIO_CONFIG["sid"], TWILIO_CONFIG["pwd"]))
+    headers.update({
+        'Content-Type': 'application/x-www-form-urlencoded',
+    })
+    payload = "Body=%s&To=%s&From=%s" % (msg, number, TWILIO_CONFIG["from"])
+    response = http.request('POST', url, headers=headers, body=payload)
+    status = response.status
+    data = json.loads(response.data)
+    print("Twilio Response: [%s] %s" % (status, data))
+
 
 def lambda_handler(event, context):
     """
@@ -168,8 +210,7 @@ def lambda_handler(event, context):
     """
     messages = poll_sqs_messages()
     for msg in messages:
-        get_restaurant_suggestions(msg["cuisine"])
-    # push_sns_msg()
+        get_restaurant_suggestions(msg)
     return {
         'statusCode': 200,
         'body': json.dumps('Hello from Lambda!')
