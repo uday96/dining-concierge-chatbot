@@ -7,7 +7,7 @@ import time
 
 SQS_QUEUE_NAME = "chatbot-sqs-1"
 # The order in which the slots must be elicited
-SLOT_VALIDATION_ORDER = ["cuisine", "location", "capacity", "date", "time", "phone"]
+SLOT_VALIDATION_ORDER = ["phone", "cuisine", "location", "capacity", "date", "time"]
 
 
 def get_slots(intent_request):
@@ -268,6 +268,10 @@ def dining_suggestions(intent_request):
     """
     Handle the DiningSuggestions intent
     """
+    if intent_request['sessionState']['intent']['name'] != "DiningSuggestionsIntent":
+        # For other intents, clear the session attributes
+        return close(intent_request, session_attributes={}, fulfillment_state="Fulfilled")
+
     if intent_request['invocationSource'] == 'FulfillmentCodeHook':
         return fulfilled(intent_request)
     if intent_request['sessionState']['intent']['confirmationState'] == 'Confirmed':

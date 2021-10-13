@@ -7,7 +7,7 @@ $(document).ready(function() {
 
   $(window).load(function() {
     $messages.mCustomScrollbar();
-    insertResponseMessage('Hi there, I\'m your personal Concierge. How can I help?');
+    insertResponseMessage('Hi there, I\'m your dining concierge. How can I help?');
   });
 
   function updateScrollbar() {

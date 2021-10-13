@@ -6,6 +6,7 @@ from decimal import Decimal
 
 SQS_QUEUE_NAME = "chatbot-sqs-1"
 DYNAMO_DB_TABLE = "yelp-restaurants"
+DYNAMO_DB_HISTORY_TABLE = "yelp-suggestions-history"
 # Elasticsearch config
 ES_CONFIG = {
     "url": "https://search-yelp-restaurants-es-coi3ozmqyi2g5vr624aing4dja.us-east-1.es.amazonaws.com",
@@ -67,7 +68,7 @@ def poll_sqs_messages():
 
 def format_sms_msg(sqs_resp, db_resps):
     msg = "Hello! Here are my %s restaurant suggestions for %s people, for %s at %s: " % (
-    sqs_resp['cuisine'], sqs_resp['capacity'], sqs_resp['date'], sqs_resp['time'])
+        sqs_resp['cuisine'], sqs_resp['capacity'], sqs_resp['date'], sqs_resp['time'])
     suggestions_msg = ""
     for ind, resp in enumerate(db_resps):
         suggestion = "%d. %s at %s. It has a rating of %s. " % (
@@ -80,6 +81,23 @@ def format_sms_msg(sqs_resp, db_resps):
     msg += suggestions_msg
     msg += "Enjoy your meal!"
     print("Final suggestion: %s" % msg)
+    return msg
+
+
+def format_history_msg(sqs_resp, db_resps):
+    msg = "Your previous search results for %s restaurants for %s people, for %s at %s: " % (
+        sqs_resp['cuisine'], sqs_resp['capacity'], sqs_resp['date'], sqs_resp['time'])
+    suggestions_msg = ""
+    for ind, resp in enumerate(db_resps):
+        suggestion = "%d. %s at %s. It has a rating of %s. " % (
+            ind + 1, resp['restaurant-name'], ', '.join(resp['restaurant-location']['display_address']),
+            resp['restaurant-rating'])
+        if resp['restaurant-display_phone']:
+            suggestion += "You can contact them at %s. " % resp['restaurant-display_phone']
+        suggestions_msg += suggestion
+
+    msg += suggestions_msg
+    print("History msg: %s" % msg)
     return msg
 
 
@@ -109,7 +127,7 @@ def load_yelp_data():
         return data
 
 
-def write_db():
+def load_yelp_to_db():
     """
     Write the Yelp data to Dynamo DB
     """
@@ -173,6 +191,40 @@ def parse_es_data_for_ids(data):
     return restaurant_ids
 
 
+def send_twilio_sms(number, msg):
+    print("Twilio Request: %s - %s" % (number, msg))
+    http = urllib3.PoolManager()
+    url = TWILIO_CONFIG['url']
+    headers = urllib3.make_headers(basic_auth='%s:%s' % (TWILIO_CONFIG["sid"], TWILIO_CONFIG["pwd"]))
+    headers.update({
+        'Content-Type': 'application/x-www-form-urlencoded',
+    })
+    payload = "Body=%s&To=%s&From=%s" % (msg, number, TWILIO_CONFIG["from"])
+    response = http.request('POST', url, headers=headers, body=payload)
+    status = response.status
+    data = json.loads(response.data)
+    print("Twilio Response: [%s] %s" % (status, data))
+
+
+def save_history_to_db(phone, msg):
+    """
+    Write the Yelp data to Dynamo DB
+    """
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(DYNAMO_DB_HISTORY_TABLE)
+    try:
+        with table.batch_writer() as writer:
+            item = {
+                "phone": phone,
+                "history": msg
+            }
+            writer.put_item(Item=item)
+        print("Loaded data into table %s" % table.name)
+    except Exception as e:
+        print("Couldn't load data into table %s" % table.name)
+        print("Error: %s" % str(e))
+
+
 def get_restaurant_suggestions(sqs_msg):
     """
     Get restaurant suggestion given a cuisine
@@ -187,21 +239,8 @@ def get_restaurant_suggestions(sqs_msg):
     if len(phone) == 10:
         phone = "+1%s" % phone
     send_twilio_sms(phone, sms_payload)
-
-
-def send_twilio_sms(number, msg):
-    print("Twilio Request: %s - %s" % (number, msg))
-    http = urllib3.PoolManager()
-    url = TWILIO_CONFIG['url']
-    headers = urllib3.make_headers(basic_auth='%s:%s' % (TWILIO_CONFIG["sid"], TWILIO_CONFIG["pwd"]))
-    headers.update({
-        'Content-Type': 'application/x-www-form-urlencoded',
-    })
-    payload = "Body=%s&To=%s&From=%s" % (msg, number, TWILIO_CONFIG["from"])
-    response = http.request('POST', url, headers=headers, body=payload)
-    status = response.status
-    data = json.loads(response.data)
-    print("Twilio Response: [%s] %s" % (status, data))
+    history_msg = format_history_msg(sqs_msg, db_resps)
+    save_history_to_db(phone, history_msg)
 
 
 def lambda_handler(event, context):
